@@ -1,0 +1,12 @@
+# Grafana data sources configuration.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus                                # Prometheus Data source configuration.
+    type: prometheus                                # Data source type. 
+    access: proxy
+    url: http://prometheus:9090/prometheus          # Prometheus server URL (web.external-url).
+    basicAuth: false
+    isDefault: true
+    editable: true
