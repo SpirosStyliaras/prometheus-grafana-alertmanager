@@ -6,10 +6,10 @@
 </td></tr></table>
 
 Simple project with a single docker-compose.yml file for deploying Prometheus, Grafana, Alertmanager monitoring stack
-behind Traefik reverse proxy in Docker SWarm environment.
+behind Traefik reverse proxy in Docker Swarm environment.
 
 # Deploy stack
-
+Before deploying the stack, upload your own self-signed certificate under `traefik/certs` directory.
 ```sh
 docker stack deploy -c ./docker-compose.yml prometheus-grafana-alertmanager
 ```
