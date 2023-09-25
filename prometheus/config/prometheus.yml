@@ -1,0 +1,56 @@
+# Prometheus Global configuration #
+# The global configuration specifies parameters that are valid in all other configuration contexts. They also serve as defaults for other configuration sections.
+
+global:
+  scrape_interval: 60s                        # How frequently to scrape targets by default.
+  scrape_timeout: 15s                         # How long until a scrape request times out.
+  evaluation_interval: 60s                    # How frequently recording/alerting rules should be evaluated. The time duration between successive evaluations of the expressions defined in the Prometheus configuration file.
+  external_labels:                            # Set of labels that will be added to all incoming data before it is stored in the time series database.
+    monitor: cloudlab
+    environment: preproduction
+
+alerting:                                     # Alertmanager endpoints.
+  alertmanagers:
+  - scheme: http
+    api_version: v2
+    path_prefix: /alertmanager
+    static_configs:
+    - targets:
+      - "alertmanager:9093"                   # The alertmanager docker service and published port.
+
+scrape_configs:                               # Scrape configurations. List of targets and their associated HTTP endpoints to be monitored for metrics data.
+  - job_name: prometheus                      # Here it's Prometheus itself. The job name assigned to scraped metrics by default. The job name corresponds to traefik docker swarm service.
+    honor_labels: false                       # How to handle conflicts between labels.
+    scrape_interval: 60s                      # Override global values.
+    scrape_timeout: 15s
+    metrics_path: /prometheus/metrics         # The HTTP resource path on which to fetch metrics from targets.
+    scheme: http                              # Configures the protocol scheme used for requests.
+
+    static_configs:                           # Static configuration of target.
+      - targets: ["localhost:9090"]
+        labels:                               # Labels to identify the target.
+          app: prometheus
+
+  - job_name: traefik                         # Scraping configuration for traefik service.
+    metrics_path: /metrics                    # Refer to metrics.prometheus.entrypoint in traefik configuration.
+    static_configs:
+      - targets:
+        - traefik:8082                        # Traefik entrypoint for metrics.
+        labels:                               # Labels to identify the target.
+          app: traefik
+    metric_relabel_configs:
+      - source_labels: ['service']            # Drop metrics with service label according to regex.
+        regex: ^(prometheus).*
+        action: drop
+      - source_labels: ['entrypoint']         # Drop metrics with entrypoint label according to regex.
+        regex: ^(traefik|metrics)
+        action: drop
+
+  - job_name: alertmanager-sdp                # Scraping configuration for alertmanager service.
+    metrics_path: /alertmanager/metrics
+    static_configs:                           # Static configuration of targets.
+      - targets:
+        - alertmanager:9093
+        labels:                               # Labels to identify the target.
+          app: alertmanager-sdp
+
