@@ -46,11 +46,11 @@ scrape_configs:                               # Scrape configurations. List of t
         regex: ^(traefik|metrics)
         action: drop
 
-  - job_name: alertmanager-sdp                # Scraping configuration for alertmanager service.
+  - job_name: alertmanager                    # Scraping configuration for alertmanager service.
     metrics_path: /alertmanager/metrics
     static_configs:                           # Static configuration of targets.
       - targets:
         - alertmanager:9093
         labels:                               # Labels to identify the target.
-          app: alertmanager-sdp
+          app: alertmanager
 
