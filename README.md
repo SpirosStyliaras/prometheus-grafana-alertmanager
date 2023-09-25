@@ -1,20 +1,24 @@
 <table align="center"><tr><td align="center" width="9999">
-<img src="icons/docker_jenkins.png" align="center" width="150" alt="Docker icon">
+<img src="icons/prometheus_grafana_logo.png" align="center" width="150" alt="Docker icon">
 
 # prometheus-grafana-alertmanager
 
 </td></tr></table>
 
-Simple docker agent for Jenkins. Use this docker image mainly as a docker agent (node) in Jenkins environment.
-This docker image instantiated containers running proccess (`CMD`) is sshd daemon.
+Simple project with a single docker-compose.yml file for deploying Prometheus, Grafana, Alertmanager monitoring stack
+behind Traefik reverse proxy in Docker SWarm environment.
 
-# Build image
+# Deploy stack
 
 ```sh
-docker image build --network host --pull --tag jenkins-docker-agent:1.0 .
+docker stack deploy -c ./docker-compose.yml prometheus-grafana-alertmanager
 ```
 
-# Run container
+# Exposed user interfaces
 
-```sh
-docker container run -d --name jenkins-agent --restart always -p 38787:22 jenkins-docker-agent:1.0
+Based on Traefik routers and middlewares configuration, the exposed UIs of deployed services:
+- `Traefik`: https\://host/dashboard/#/
+- `Prometheus`: https\://host/prometheus
+- `Grafana`: https\://host/grafana
+- `Alertmanager`: https\://host/alertmanager
+
