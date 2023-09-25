@@ -1,0 +1,10 @@
+# =============================================================
+#
+#	TRAEFIK Reverse proxy dynamic configuration
+#
+# =============================================================
+
+tls:
+  certificates:
+    - certFile: /certs/cert.pem
+      keyFile: /certs/key.pem
