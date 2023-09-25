@@ -25,7 +25,6 @@ scrape_configs:                               # Scrape configurations. List of t
     scrape_timeout: 15s
     metrics_path: /prometheus/metrics         # The HTTP resource path on which to fetch metrics from targets.
     scheme: http                              # Configures the protocol scheme used for requests.
-
     static_configs:                           # Static configuration of target.
       - targets: ["localhost:9090"]
         labels:                               # Labels to identify the target.
