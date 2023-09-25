@@ -1,0 +1,300 @@
+#===============================================================#
+#                                                               #
+#	  Prometheus - Grafana Docker Swarm deployment with Traefik   #
+#	                       reverse proxy                          #
+#                                                               #
+#===============================================================#
+
+version: "3.9"
+
+
+# =========================== SERVICES ===========================
+
+services:
+  traefik:
+    labels:
+      description: "Traefik Reverse Proxy"
+    image: "traefik:v2.6"                              
+    command:                                            # Traefik service command arguments (Traefik static configuration).
+      # Access log configuration.
+      - "--accesslog=false"                             # Disable access log (logging of requests).
+      - "--accessLog.bufferingSize=100"
+      - "--accesslog.fields.defaultmode=keep"
+      - "--accesslog.filepath=/var/log/access.log"      # Access log file absolute path.
+      # Traefik API configuration.
+      - "--api"                                         # Enable the Traefik dashboard and API (EntryPoint named "traefik" if enabled).
+      # Entrypoints configuration.
+      - "--entrypoints.web.address=:80"                 # Traefik entrypoint for web (HTTP) traffic.
+      - "--entryPoints.websecure.address=:443"          # Traefik entrypoint for secure web (HTTPS) traffic.
+      - "--entryPoints.metrics.address=:8082"           # Traefik entrypoint for metrics.
+      - "--entrypoints.web.transport.lifecycle.gracetimeout=50"
+      - "--entrypoints.web.transport.lifecycle.requestacceptgracetimeout=50"
+      - "--entrypoints.web.transport.respondingtimeouts.readtimeout=50"
+      - "--entrypoints.web.transport.respondingtimeouts.writetimeout=50"
+      - "--entrypoints.web.transport.respondingtimeouts.idletimeout=50"
+      - "--entrypoints.websecure.transport.lifecycle.gracetimeout=50"
+      - "--entrypoints.websecure.transport.lifecycle.requestacceptgracetimeout=50"
+      - "--entrypoints.websecure.transport.respondingtimeouts.readtimeout=50"
+      - "--entrypoints.websecure.transport.respondingtimeouts.writetimeout=50"
+      - "--entrypoints.websecure.transport.respondingtimeouts.idletimeout=50"
+      # Entrypoints configuration. Global redirection HTTP to HTTPS.
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"                # Redirect requests from web to websecure entrypoint (80 --> 443).
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      # Logging configuration.
+      - "--log=false"                                   # Disable Traefik service logging.
+      - "--log.level=WARN"
+      - "--log.filepath=/var/log/traefik.log"
+      #- "--log.filepath="                               # Disable traefik log file.
+      # Prometheus Metrics configuration.
+      - "--metrics.prometheus=true"                     # Enable prometheus exporter metrics for traefik. 
+      - "--metrics.prometheus.buckets=0.1,0.3,1.2,5.0"
+      - "--metrics.prometheus.entrypoint=metrics"       # Traefik entrypoint URL for Prometheus metrics.
+      - "--metrics.prometheus.addentrypointslabels=true"
+      - "--metrics.prometheus.addserviceslabels=true"
+      - "--metrics.prometheus.addrouterslabels=false"
+      # Providers configuration.
+      - "--providers.docker=true"                       # Enable docker provider.
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
+      - "--providers.docker.exposedbydefault=false"     # Docker containers without the label traefik.enable=true will be ignored by traefik reverse proxy.
+      - "--providers.docker.network=traefik-net"        # Default docker network for traefik related communication.
+      - "--providers.docker.swarmmode=true"             # True if we use docker in Swarm mode.
+      - "--providers.docker.swarmmoderefreshseconds=20"
+      - "--providers.docker.watch=true"
+      - "--providers.file.directory=/config"            # File provider directory.
+      - "--providers.file.watch=true"
+      # Backend services configuration.
+      - "--serverstransport.maxidleconnsperhost=50"
+      - "--serverstransport.forwardingtimeouts.dialtimeout=50"
+      - "--serverstransport.forwardingtimeouts.responseHeaderTimeout=50"
+      - "--serverstransport.forwardingtimeouts.idleConnTimeout=50"
+    hostname: traefik
+    ports:
+      - target: 80         # Container entrypoint (entrypoints.web) exposed port.
+        published: 80      # Publicly exposed port.
+        protocol: tcp
+        mode: ingress
+      - target: 443        # Container entrypoint (entrypoints.websecure) exposed port.
+        published: 443     # Publicly exposed port.
+        protocol: tcp
+        mode: ingress
+    networks:
+      - traefik_net        # Attach the containers of this service to traefik_net overlay network.
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"   # Bind to docker socket in ro (read-only) mode. Mandatory to monitor all docker related events.
+    configs:                                             # Traefik dynamic configuration mounted as config.
+      - source: traefik_config
+        target: /config/traefik.yml
+    secrets:                                             # Traefik TLS certificate and keyls -l mounted as secrets.
+      - source: traefik_cert
+        target: /certs/cert.pem
+      - source: traefik_key
+        target: /certs/key.pem
+    deploy:
+      labels:
+        - "traefik.enable=true"                                                            # Enable Traefik for this service.
+        - "traefik.docker.network=traefik-net"
+        - "traefik.docker.lbswarm=true"
+        - "traefik.http.routers.traefik-dashboard-router.entrypoints=websecure"            # Create router for Traefik dashboard and use websecure entrypoint.
+        - "traefik.http.routers.traefik-dashboard-router.rule=PathPrefix(`/`)"             # Access dashboard using this path prefix.
+        - "traefik.http.routers.traefik-dashboard-router.tls=true"
+        - "traefik.http.routers.traefik-dashboard-router.service=api@internal"
+        - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+        - "traefik.http.middlewares.traefik-dashboard-auth.basicauth.users=admin:$$apr1$$403dmj8y$$chANX/ircg4nPD4sVU/cP0"
+        - "traefik.http.middlewares.traefik-dashboard-auth.basicauth.removeheader=true" 
+        - "traefik.http.routers.traefik-dashboard-router.middlewares=traefik-dashboard-auth"
+      endpoint_mode: vip
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints: [node.role == manager]
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 500M
+
+
+  prometheus:
+    labels:
+      description: "Prometheus"
+    image: prom/prometheus:latest
+    hostname: prometheus
+    volumes:
+      - prometheus_data:/prometheus
+    configs:                                 # Prometheus configuration mounted as config.
+      - source: prometheus_config
+        target: /etc/prometheus/prometheus.yml
+    networks:
+      - monitoring_net                       # Monitoring overlay network for establishing connection with monitoring containers (prometheus, grafana, exporters etc).
+      - traefik_net                          # Traefik reverse proxy overly network for establishing connection with traefik service.
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"                       # Prometheus configuration file.
+      - "--storage.tsdb.path=/prometheus"                                    # Prometheus time series DB path.
+      - "--storage.tsdb.retention.time=96h"                                  # TSDB retention duration.
+      - "--storage.tsdb.retention.size=4GB"                                  # TSDB size.
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+      - "--web.external-url=/prometheus"                                     # The URL under which Prometheus is externally reachable.
+    deploy:
+      labels:                                                                            # Traefik configuration.
+        - "traefik.enable=true"                                                          # Set to true if exposedbydefault is false in traefik proxy config.
+        - "traefik.docker.lbswarm=true"
+        - "traefik.docker.network=traefik-net"                                           # Traefik network.
+        - "traefik.http.routers.prometheus-router.entrypoints=websecure"                 # Attach this docker service router to websecure traefik endpoint (create traefik router).
+        - "traefik.http.routers.prometheus-router.tls=true"
+        - "traefik.http.routers.prometheus-router.rule=PathPrefix(`/prometheus`)"        # Requests to this path prefix will be forwarded to this traefik router.
+        - "traefik.http.routers.prometheus-router.service=prometheus-service"            # Traefik service.
+        - "traefik.http.services.prometheus-service.loadbalancer.server.port=9090"       # Prometheus web UI service listening to port 9090.
+      endpoint_mode: vip
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints: [node.role == manager]
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 500M
+    depends_on:
+      - traefik
+
+
+  grafana:
+    labels:
+      description: "Grafana"
+    image: grafana/grafana:latest
+    hostname: grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+    configs:                                 # Grafana configuration files mounted as config.
+      - source: grafana_datasources_config
+        target: /etc/grafana/provisioning/datasources/datasource.yml
+    networks:
+      - monitoring_net                       # Monitoring overlay network.
+      - traefik_net                          # Traefik reverse proxy overly network.
+    environment:
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s:%(http_port)s/grafana/              # Change Grafana root url.
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true                                               # Specify a sub-path for Grafana to be served under.
+    deploy:
+      labels:                                                                            # Traefik configuration.
+        - "traefik.enable=true"                                                          # Set to true if exposedbydefault is false in traefik proxy config.
+        - "traefik.docker.lbswarm=true"
+        - "traefik.docker.network=traefik-net"
+        - "traefik.http.routers.grafana-router.entrypoints=websecure"
+        - "traefik.http.routers.grafana-router.tls=true"
+        - "traefik.http.routers.grafana-router.rule=PathPrefix(`/grafana`)"              # Requests to this path prefix will be forwarded to this traefik router
+        - "traefik.http.routers.grafana-router.service=grafana-service"                  # Traefik service.
+        - "traefik.http.services.grafana-service.loadbalancer.server.port=3000"          # Grafana web UI service listening to port 9090.
+      endpoint_mode: vip
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints: [node.role == manager]
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 500M
+    depends_on:
+      - prometheus
+
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    labels:
+      description: "Alert manager for Prometheus"
+    hostname: alertmanager
+    networks:
+      - monitoring_net                                       # Monitoring overlay network.
+      - traefik_net                                          # Traefik reverse proxy overly network.
+    command:
+      - "--web.route-prefix=/alertmanager"                   # Change alertmanager UI and API endpoints prefix.  
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    deploy:
+      labels:                                                                                # Traefik dynamic configuration.  
+        - "traefik.enable=true"                                                              # Set to true if exposedbydefault is false in traefik proxy config.
+        - "traefik.docker.lbswarm=true"
+        - "traefik.docker.network=traefik-net"                                               # Traefik network.
+        - "traefik.http.routers.alertmanager-router.entrypoints=websecure"
+        - "traefik.http.routers.alertmanager-router.tls=true"
+        - "traefik.http.routers.alertmanager-router.rule=PathPrefix(`/alertmanager`)"        # Requests to this path will be forwarded to this traefik router.
+        - "traefik.http.routers.alertmanager-router.service=alertmanager-service"            # Traefik service.
+        - "traefik.http.services.alertmanager-service.loadbalancer.server.port=9093"         # alertmanager service listening to port 9093.
+      endpoint_mode: vip
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints: [node.role == manager]
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 400M
+    depends_on:
+      - prometheus
+
+
+
+#=========================== NETWORKS ===========================
+
+networks:                  # traefik network. All Docker services backed by traefik Reverse proxy should be connected to this network.
+  traefik_net:
+    name: traefik-net
+    driver: overlay
+    external: false        # Not created outside compose.
+    attachable: true       # Enable manual container attachment.
+    internal: false        # Not an internal (isolated) overlay network. This network will be attached to docker overlay bridge.
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.10.0.0/24                 # Subnet range. It must be a subnet of the default-address-pool.
+  monitoring_net:
+    name: monitoring-net
+    driver: overlay
+    external: false
+    attachable: true
+    internal: false
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.11.0.0/24
+
+
+#============================ CONFIGS ===========================
+
+configs:
+  traefik_config:
+    name: traefik-config
+    file: ./traefik/config/traefik.yml
+  prometheus_config:
+    name: prometheus-config
+    file: ./prometheus/config/prometheus.yml
+  grafana_datasources_config:
+    name: grafana-datasources-config
+    file: ./grafana/config/datasources.yml
+
+
+#============================ SECRETS ===========================
+
+secrets:
+  traefik_cert:
+    name: traefik-cert
+    file: ./traefik/certs/cert.pem
+  traefik_key:
+    name: traefik-key
+    file: ./traefik/certs/key.pem
+
+
+#============================ VOLUMES ===========================
+volumes:
+  prometheus_data:
+    name: prometheus_data_vol
+  grafana_data:
+    name: grafana_data_vol
