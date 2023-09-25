@@ -1,7 +1,7 @@
 #===============================================================#
 #                                                               #
-#	  Prometheus - Grafana Docker Swarm deployment with Traefik   #
-#	                       reverse proxy                          #
+#       Prometheus - Grafana - Alertmanager Docker Swarm        #
+#            deployment with Traefik reverse proxy              #
 #                                                               #
 #===============================================================#
 
